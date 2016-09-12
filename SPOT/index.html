@@ -1,0 +1,198 @@
+
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no">
+  <title>SPOT Messenger Check-ins</title>
+  <link rel="stylesheet" type="text/css" href="https://js.arcgis.com/3.9/js/esri/css/esri.css">
+  <link rel="stylesheet" type="text/css" href="https://js.arcgis.com/3.9/js/dojo/dijit/themes/claro/claro.css">
+  <style>
+  html, body, #mainWindow {
+      padding:0;
+      margin:0;
+      height:100%;
+      width:100%;
+  }
+  </style>
+  <script src="https://js.arcgis.com/3.9/"></script>
+  <script>
+  var map;
+  require([
+      "esri/map", "esri/layers/WebTiledLayer", "esri/geometry/Point", "esri/SpatialReference",
+      "esri/symbols/SimpleMarkerSymbol", "esri/graphic", "esri/symbols/SimpleLineSymbol", "esri/Color",
+      "esri/symbols/TextSymbol", "esri/symbols/Font", "esri/layers/ArcGISTiledMapServiceLayer",
+      "dojo/request/script", "dojo/_base/array", "dojo/dom", "dijit/registry", "dojo/dom-construct", "dojo/on",
+      "dijit/layout/BorderContainer", "dijit/layout/ContentPane", "dijit/form/ToggleButton",
+      "dojo/parser", "dojo/domReady!"
+      ], function(
+        Map, WebTiledLayer, Point, SpatialReference,
+        SimpleMarkerSymbol, Graphic, SimpleLineSymbol, Color,
+        TextSymbol, Font, ArcGISTiledMapServiceLayer,
+        script, array, dom, registry, domConstruct, on,
+        BorderContainer, ContentPane, ToggleButton,
+        parser
+        )  {
+        parser.parse();
+
+        map = new Map("map", {
+            center: [-105.25, 40],
+            zoom: 14
+        });
+
+
+        var topoLayer = new WebTiledLayer("https://s3-us-west-1.amazonaws.com/caltopo/topo/${level}/${col}/${row}.png", {
+          id: "CalTopo Topo"
+        });
+        map.addLayer(topoLayer);
+
+        var reliefLayer = new WebTiledLayer("https://s3-us-west-1.amazonaws.com/ctrelief/relief/${level}/${col}/${row}.png", {
+          id: "CalTopo Relief",
+          opacity: 0.3
+        });
+        map.addLayer(reliefLayer);
+
+        var imageryLayer = new ArcGISTiledMapServiceLayer("https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer", {
+            visible: false
+        });
+        map.addLayer(imageryLayer);
+
+        var labelsLayer = new ArcGISTiledMapServiceLayer("https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer", {
+            visible: false
+        });
+        map.addLayer(labelsLayer);
+
+        script.get("https://api.findmespot.com/spot-main-web/consumer/rest-api/2.0/public/feed/0m8zQxJLlrY2sz4N2MRR23OapTj1g8ofQ/message.json", {
+            jsonp: "callback"
+        }).then(function(data){
+            console.log(data);
+
+            var messages = data.response.feedMessageResponse.messages.message;
+            addToMap(messages);
+
+        }, function(err){
+            console.log('error');
+        });
+
+        on(dom.byId('toggleBasemap'), 'click', function() {
+            var toggleBasemap = registry.byId('toggleBasemap');
+            var checked = toggleBasemap.get('checked');
+            if (checked) {
+                toggleBasemap.set('label', 'Show Imagery');
+                imageryLayer.hide();
+                labelsLayer.hide();
+                topoLayer.show();
+                reliefLayer.show();
+            }
+            else {
+                toggleBasemap.set('label', 'Show Topo');
+                imageryLayer.show();
+                boundariesLayer.show();
+                topoLayer.hide();
+                reliefLayer.hide();
+            }
+        })
+
+        function addToMap(messages) {
+            console.log('addToMap');
+            var font = new Font("20px", Font.STYLE_NORMAL, Font.VARIANT_NORMAL, Font.WEIGHT_BOLDER);
+
+            var messagesArray;
+            if (!messages.length) {
+                messagesArray = [messages];
+            } else {
+                messagesArray = messages;
+            }
+
+            array.forEach(messagesArray, function(message, i) {
+                console.log(message);
+                var point = new Point(message.longitude, message.latitude, new SpatialReference({wkid:4326}));
+                var symbol = new SimpleMarkerSymbol(SimpleMarkerSymbol.STYLE_CIRCLE, 11,
+                    new SimpleLineSymbol(SimpleLineSymbol.STYLE_SOLID,
+                    new Color([0,0,0]), 1),
+                    new Color([255,0,0]));
+                var graphic = new Graphic(point, symbol);
+
+                map.graphics.add(graphic);
+
+                var textSymbolDropShadow = new TextSymbol(i+1, font, new Color([0, 0, 0]));
+                textSymbolDropShadow.setAlign(Font.ALIGN_START);
+                textSymbolDropShadow.setOffset(6, 4);
+                var labelPointGraphic = new Graphic(point, textSymbolDropShadow);
+                // add the label point graphic to the map
+                map.graphics.add(labelPointGraphic);
+
+                var textSymbol = new TextSymbol(i+1, font, new Color([255, 0, 0]));
+                textSymbol.setAlign(Font.ALIGN_START);
+                textSymbol.setOffset(5, 5);
+                var labelPointGraphic = new Graphic(point, textSymbol);
+                // add the label point graphic to the map
+                map.graphics.add(labelPointGraphic);
+
+                if (i == 0) {
+                    map.centerAndZoom(point, 14);
+                }
+
+                addToSummary(message, i+1);
+            });
+
+        }
+
+        function addToSummary(message, i) {
+            console.log('addToSummary ' + message);
+
+
+            var dateStr = message.dateTime;
+            var year = dateStr.substr(0,4);
+            var month = dateStr.substr(5,2);
+            var day = dateStr.substr(8,2);
+            var hour = dateStr.substr(11,2);
+            var minute = dateStr.substr(14,2);
+            var second = dateStr.substr(17,2);
+            //console.log(year + "/" + month + "/" + day + " " + hour + ":" + minute + ":" + second);
+            var date = new Date(Date.UTC(year, month, day, hour, minute, second));
+            //console.log(date.toString());
+            var dateString = date.getMonth() + "/" + date.getDate() + "/" + date.getFullYear() + " " + padDigits(date.getHours(),2) + ":" + padDigits(date.getMinutes(),2);
+
+            var node = domConstruct.toDom('<div id="message' + i + '"style="font-size:12px;"><b>Message #' + i + ': ' + message.messageType + '</b><br>' + dateString + '<br>Lon: ' + message.longitude + ', Lat: ' + message.latitude + '</div><br>');
+
+            domConstruct.place(node, "messageDiv");
+
+            on(dom.byId('message' + i), 'click', function() {
+                console.log('node clicked');
+                map.centerAndZoom(new Point(message.longitude, message.latitude, new SpatialReference({wkid:4326})));
+            });
+        }
+
+        function padDigits(n, totalDigits){
+            n = n.toString();
+            var pd = '';
+            if (totalDigits > n.length) {
+                for (i = 0; i < (totalDigits - n.length); i++) {
+                    pd += '0';
+                }
+            }
+            return pd + n.toString();
+        }
+
+      });
+  </script>
+</head>
+<body class="claro">
+    <div id="mainWindow" data-dojo-type="dijit/layout/BorderContainer" data-dojo-props="design:'headline', gutters:false">
+
+        <div id="leftPane" data-dojo-type="dijit/layout/ContentPane" data-dojo-props="region:'left', splitter:true" style="width:250px;">
+            <h3>Recent SPOT Check-ins:</h3>
+            #1 is most recent, click on message to zoom<hr>
+            <div id="messageDiv"></div>
+        </div> <!-- end leftPane -->
+
+        <div id="centerPane" data-dojo-type="dijit/layout/ContentPane" data-dojo-props="region:'center'">
+            <div id="map" data-dojo-type="dijit/layout/ContentPane" style="padding:0px; margin:0px;">
+                <div id="toggleBasemap" data-dojo-type="dijit/form/ToggleButton" style="position: absolute; top: 15px; right: 15px;z-index: 50;">Show Imagery</div>
+            </div>
+        </div> <!-- end centerPane -->
+
+    </div> <!-- end mainWindow BorderContainer -->
+</body>
+</html>
